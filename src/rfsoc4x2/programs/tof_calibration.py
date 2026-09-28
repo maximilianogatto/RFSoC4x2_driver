@@ -41,7 +41,7 @@ def detect_arrival(t, iq, pulse_length, smooth=7, min_snr=10):
     return arrival
 
 
-def tof_calibration(rfsoc: RFSoC, resonator: Element, pulse_length: float, window: float | None = None, margin: float = 20e-9, smooth=7, min_snr=10, soft_avg = 100, verbose = True, plot = True) -> tuple[float, int]:
+def tof_calibration(rfsoc: RFSoC, resonator: Element, pulse_length: float, window: float | None = None, margin: float = 20e-9, smooth=7, min_snr=10, soft_avg = 100, final_delay: float = 5e-6, verbose = True, plot = True) -> tuple[float, int]:
     """Autocalibrate the time-of-flight delay for a resonator.
 
     The window opens at t = 0 (the configured time_of_flight is deliberately
@@ -57,6 +57,8 @@ def tof_calibration(rfsoc: RFSoC, resonator: Element, pulse_length: float, windo
         smooth: smoothing length for arrival detection (samples)
         min_snr: minimum S/N ratio for arrival detection
         soft_avg: number of soft averages to take
+        final_delay: delay between shots (s). Only the resonator has to
+            ring down here, so a few microseconds is plenty.
         verbose: whether to print verbose output
         plot: whether to plot the results
     Returns:
@@ -99,6 +101,8 @@ def tof_calibration(rfsoc: RFSoC, resonator: Element, pulse_length: float, windo
         print(f"decimated buffer : {resonator.buf_maxlen} samples")
         print(f"window           : {window*1e9:.0f} ns -> {samples} samples ({sample_period*1e9:.2f} ns each)")
         print(f"averaging        : {max_shots} hardware x {soft_avg} software")
+        seconds = max_shots * soft_avg * (window + final_delay) + 0.1
+        print(f"estimated time   : {seconds:.1f} s")
         if capped:
             print(f"NOTE: window capped by the {resonator.buf_maxlen}-sample buffer. "
                   f"If the pulse falls outside it, use acquisition_mode='ddr4'.")
@@ -115,7 +119,8 @@ def tof_calibration(rfsoc: RFSoC, resonator: Element, pulse_length: float, windo
                                 sample_name = f"{resonator.name}",
                                 acquisition_mode = 'decimated',
                                 n_shots = max_shots,
-                                soft_avgs = soft_avg)
+                                soft_avgs = soft_avg,
+                                final_delay = final_delay)
 
         run_id = rfsoc.run(readout_sequence, run_config)
     finally:

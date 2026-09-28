@@ -13,6 +13,7 @@ from qickodes.macro_base_v2 import Macro
 from .build import build_element, build_pulse
 from .config import Config
 from .elements import Element
+from .specs import ElementSpec, PulseSpec
 
 # The modes qickodes accepts. "raw" is not one of them.
 ACQUISITION_MODES = (
@@ -174,6 +175,24 @@ class RFSoC:
         if name not in self.pulses:
             raise KeyError(f"no pulse '{name}'. Configured pulses: {sorted(self.pulses)}")
         return self.pulses[name]
+    
+    def add_element(self, element_spec: ElementSpec):
+        """Add a new element to the RFSoC and apply its spec to the hardware."""
+        if element_spec.name in self.elements:
+            raise ValueError(f"element '{element_spec.name}' already exists. Use update_spec() to change it.")
+        element = build_element(element_spec, self.qi)
+        self.elements[element.name] = element
+        print(f"Added new element {element.name} ({element.type}) on DAC {element_spec.dac}.")
+    
+    def add_pulse(self, pulse_spec: PulseSpec):
+        """Add a new pulse to an existing element and apply its spec to the hardware."""
+        if pulse_spec.name in self.pulses:
+            raise ValueError(f"pulse '{pulse_spec.name}' already exists. Use update_spec() to change it.")
+        element = self.element(pulse_spec.element)
+        pulse = build_pulse(pulse_spec, element.dac, name=pulse_spec.name, base_freq=element.frequency)
+        element.pulses[pulse_spec.name] = pulse
+        self.pulses[pulse_spec.name] = pulse
+        print(f"Added new pulse {pulse_spec.name} ({pulse_spec.type}) on {element.name}.")
 
     def _apply_config(self):
         """Build every element, then every pulse, from the config."""
