@@ -177,21 +177,30 @@ class RFSoC:
         return self.pulses[name]
     
     def add_element(self, element_spec: ElementSpec):
-        """Add a new element to the RFSoC and apply its spec to the hardware."""
-        if element_spec.name in self.elements:
-            raise ValueError(f"element '{element_spec.name}' already exists. Use update_spec() to change it.")
+        """Add a new element to the RFSoC and apply its spec to the hardware.
+
+        The spec also joins the Config, so it reaches the dataset snapshot and
+        update_spec() can find it later.
+        """
+        # validate before building, so a bad spec touches no hardware
+        self.config.check_new_element(element_spec)
         element = build_element(element_spec, self.qi)
         self.elements[element.name] = element
+        self.config.elements.append(element_spec)
         print(f"Added new element {element.name} ({element.type}) on DAC {element_spec.dac}.")
-    
+
     def add_pulse(self, pulse_spec: PulseSpec):
-        """Add a new pulse to an existing element and apply its spec to the hardware."""
-        if pulse_spec.name in self.pulses:
-            raise ValueError(f"pulse '{pulse_spec.name}' already exists. Use update_spec() to change it.")
+        """Add a new pulse to an existing element and apply its spec to the hardware.
+
+        The spec also joins the Config, so it reaches the dataset snapshot, and
+        _resync_element() retunes it when its element's frequency changes.
+        """
+        self.config.check_new_pulse(pulse_spec)
         element = self.element(pulse_spec.element)
         pulse = build_pulse(pulse_spec, element.dac, name=pulse_spec.name, base_freq=element.frequency)
         element.pulses[pulse_spec.name] = pulse
         self.pulses[pulse_spec.name] = pulse
+        self.config.pulses.append(pulse_spec)
         print(f"Added new pulse {pulse_spec.name} ({pulse_spec.type}) on {element.name}.")
 
     def _apply_config(self):

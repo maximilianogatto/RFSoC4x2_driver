@@ -32,6 +32,33 @@ class Config:
         """Names of every pulse, in config order."""
         return [pulse.name for pulse in self.pulses]
 
+    def check_new_element(self, element: ElementSpec):
+        """Raise if this element could not be added. Does not modify anything.
+
+        Called before the element is built, so a bad spec fails before any
+        hardware is touched.
+        """
+        if not isinstance(element, ElementSpec):
+            raise ValueError(f"Element {element} is not an ElementSpec instance.")
+        if element.name in self.element_names():
+            raise ValueError(
+                f"element '{element.name}' already exists. Use update_spec() to change it."
+            )
+
+    def check_new_pulse(self, pulse: PulseSpec):
+        """Raise if this pulse could not be added. Does not modify anything."""
+        if not isinstance(pulse, PulseSpec):
+            raise ValueError(f"Pulse {pulse} is not a PulseSpec instance.")
+        if pulse.name in self.pulse_names():
+            raise ValueError(
+                f"pulse '{pulse.name}' already exists. Use update_spec() to change it."
+            )
+        if pulse.element not in self.element_names():
+            raise ValueError(
+                f"Pulse {pulse.name} belongs to element '{pulse.element}', "
+                f"which is not in the config. Known elements: {self.element_names()}"
+            )
+
     def to_dict(self) -> dict:
         """JSON-compatible copy of every spec, stored with each dataset by `RFSoC.run()`."""
         return {
