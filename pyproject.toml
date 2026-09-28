@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rfsoc4x2"
+version = "0.1.0"
+description = "A QM-style configuration layer over qickodes for the RFSoC 4x2"
+readme = "README.md"
+# qickodes needs >=3.9; the `X | None` annotations used here need >=3.10.
+requires-python = ">=3.10"
+authors = [{ name = "Maximiliano Gatto" }]
+
+dependencies = [
+    "numpy",
+    "qcodes",
+    # qickodes pulls in qick and pyro4 itself. Install it from the local
+    # checkout instead if you need unreleased changes:
+    #   pip install -e ../../libraries/qickodes
+    "qickodes>=0.1.6",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# ---------------------------------------------------------------------------
+# Ruff. Same conventions as qickodes so the two codebases read alike.
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "D"]
+ignore = [
+    "D100",  # Missing docstring in public module
+    "D101",  # Missing docstring in public class
+    "D102",  # Missing docstring in public method
+    "D103",  # Missing docstring in public function
+    "D104",  # Missing docstring in public package
+    "E501",  # Line too long (line-length above is advisory)
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"

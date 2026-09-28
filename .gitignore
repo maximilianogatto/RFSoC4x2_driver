@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+.ruff_cache/
+.pytest_cache/
+
+# macOS
+.DS_Store
+
+# qcodes databases and exported shots
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+database/
+data/
+*_shots/
+*.npy
