@@ -41,11 +41,15 @@ from .rfsoc import RFSoC, RunConfig
 from .specs import (
     ArbitraryPulseSpec,
     ConstantPulseSpec,
+    CorrectedConstantPulseSpec,
     ElementSpec,
     EnvelopeSpec,
     GaussianDragEnvelopeSpec,
+    FlatTopPulseSpec,
     GaussianEnvelopeSpec,
+    MuxedConstantPulseSpec,
     PulseSpec,
+    TonePulseSpec,
     QubitSpec,
     ResonatorSpec,
 )
@@ -64,8 +68,12 @@ __all__ = [
     "ResonatorSpec",
     # pulse specs
     "PulseSpec",
+    "TonePulseSpec",
     "ConstantPulseSpec",
+    "CorrectedConstantPulseSpec",
     "ArbitraryPulseSpec",
+    "FlatTopPulseSpec",
+    "MuxedConstantPulseSpec",
     # envelope specs
     "EnvelopeSpec",
     "GaussianEnvelopeSpec",

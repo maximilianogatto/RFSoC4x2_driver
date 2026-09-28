@@ -11,27 +11,39 @@ from __future__ import annotations
 
 from functools import singledispatch
 
+import numpy as np
+
 # NOTE: these must be real runtime imports, not `if TYPE_CHECKING` ones.
 # `singledispatch.register` calls `typing.get_type_hints()` on each registered
 # function, which resolves EVERY annotation in the signature - not just the
 # first parameter it dispatches on. A name that only exists for the type
 # checker raises NameError at import time.
-from qickodes.channels_v2 import DacChannel
+from qickodes.channels_v2 import DacChannel, MultiplexedDacChannel
 from qickodes.envelope_base_v2 import DacEnvelope
 from qickodes.envelopes_v2 import GaussianDragEnvelope, GaussianEnvelope
 from qickodes.instrument_v2 import QickInstrument
 from qickodes.pulse_base_v2 import DacPulse
-from qickodes.pulses_v2 import ArbitraryPulse, ConstantPulse
+from qickodes.pulses_v2 import (
+    ArbitraryPulse,
+    ConstantPulse,
+    CorrectedConstantPulse,
+    FlatTopPulse,
+    MuxedConstantPulse,
+)
 
 from .elements import Element
 from .specs import (
     ArbitraryPulseSpec,
     ConstantPulseSpec,
+    CorrectedConstantPulseSpec,
     ElementSpec,
     EnvelopeSpec,
     GaussianDragEnvelopeSpec,
+    FlatTopPulseSpec,
     GaussianEnvelopeSpec,
+    MuxedConstantPulseSpec,
     PulseSpec,
+    TonePulseSpec,
     QubitSpec,
     ResonatorSpec,
 )
@@ -138,7 +150,7 @@ def _(spec: GaussianDragEnvelopeSpec, dac: DacChannel, name: str | None = None) 
 # ---------------------- PULSES ----------------------
 
 
-def _apply_carrier(pulse, spec: PulseSpec, base_freq: float) -> None:
+def _apply_carrier(pulse, spec: TonePulseSpec, base_freq: float) -> None:
     """Set the parameters every pulse has in common.
 
     The pulse frequency is `base_freq + spec.detuning`, so moving an element's
@@ -150,7 +162,7 @@ def _apply_carrier(pulse, spec: PulseSpec, base_freq: float) -> None:
     pulse.gain.set(spec.gain)
     pulse.reset_phase.set(spec.reset_phase)
     pulse.hold_last_sample.set(spec.hold_last_sample)
-    pulse.periodic.set(spec.periodic)
+    # periodic is deliberately not here: FlatTopPulse has no periodic mode
 
 
 @singledispatch
@@ -180,6 +192,7 @@ def _(spec: ConstantPulseSpec, dac: DacChannel, name: str | None = None, base_fr
     pulse = ConstantPulse(dac, name or spec.name)
     _apply_carrier(pulse, spec, base_freq)
     pulse.length.set(spec.length)
+    pulse.periodic.set(spec.periodic)
     return pulse
 
 
@@ -190,4 +203,61 @@ def _(spec: ArbitraryPulseSpec, dac: DacChannel, name: str | None = None, base_f
     # No length: an arbitrary pulse lasts as long as its envelope.
     pulse = ArbitraryPulse(dac, pulse_name, envelope)
     _apply_carrier(pulse, spec, base_freq)
+    pulse.periodic.set(spec.periodic)
+    return pulse
+
+
+@build_pulse.register
+def _(spec: CorrectedConstantPulseSpec, dac: DacChannel, name: str | None = None, base_freq: float = 0.0) -> DacPulse:
+    pulse = CorrectedConstantPulse(dac, name or spec.name)
+    _apply_carrier(pulse, spec, base_freq)
+    pulse.length.set(spec.length)
+    pulse.periodic.set(spec.periodic)
+
+    # the three curves are interpolated together at the pulse frequency, so
+    # they have to be the same length. Empty arrays mean no correction.
+    freqs = np.asarray(spec.correctable_freqs, dtype=float)
+    gains = np.asarray(spec.gain_factors, dtype=float)
+    phases = np.asarray(spec.phase_offsets, dtype=float)
+    if not (len(freqs) == len(gains) == len(phases)):
+        raise ValueError(
+            f"{spec.name}: correctable_freqs, gain_factors and phase_offsets must "
+            f"have equal length, got {len(freqs)}, {len(gains)}, {len(phases)}"
+        )
+    pulse.correctable_freqs.set(freqs)
+    pulse.gain_factors.set(gains)
+    pulse.phase_offsets.set(phases)
+    return pulse
+
+
+@build_pulse.register
+def _(spec: FlatTopPulseSpec, dac: DacChannel, name: str | None = None, base_freq: float = 0.0) -> DacPulse:
+    pulse_name = name or spec.name
+    envelope = build_envelope(spec.envelope, dac, f"{pulse_name}_envelope")
+    pulse = FlatTopPulse(dac, pulse_name, envelope)
+    _apply_carrier(pulse, spec, base_freq)
+    # the FLAT part only; the ramps add the envelope's length on top
+    pulse.length.set(spec.length)
+    return pulse
+
+
+@build_pulse.register
+def _(spec: MuxedConstantPulseSpec, dac: MultiplexedDacChannel, name: str | None = None, base_freq: float = 0.0) -> DacPulse:
+    if not hasattr(dac, "tones"):
+        raise TypeError(
+            f"{spec.name}: a muxed pulse needs a MultiplexedDacChannel, but DAC "
+            f"{dac.channel_num} is a {type(dac).__name__}. The firmware must be "
+            f"built with a muxed generator."
+        )
+    n_tones = len(dac.tones)
+    bad = [tone for tone in spec.tone_nums if not 0 <= tone < n_tones]
+    if bad:
+        raise ValueError(
+            f"{spec.name}: tone numbers {bad} out of range for DAC "
+            f"{dac.channel_num}, which has {n_tones} tones"
+        )
+    # no carrier: the frequencies and gains live on the DAC's tones
+    pulse = MuxedConstantPulse(dac, name or spec.name)
+    pulse.length.set(spec.length)
+    pulse.tone_nums.set(tuple(spec.tone_nums))
     return pulse

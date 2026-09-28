@@ -6,6 +6,7 @@ They don't need qick instrument to be created.
 
 from abc import ABC
 from dataclasses import dataclass, field
+from typing import Sequence
 
 # ---------------------- ELEMENT SPECS ----------------------
 
@@ -42,7 +43,7 @@ class EnvelopeSpec(ABC):
     """Base description of a pulse envelope.
 
     An envelope is a waveform loaded into the DAC's envelope memory. It is
-    referenced by `ArbitraryPulseSpec`.
+    referenced by `ArbitraryPulseSpec` and `FlatTopPulseSpec`.
     """
 
     name: str
@@ -77,38 +78,96 @@ class GaussianDragEnvelopeSpec(EnvelopeSpec):
 class PulseSpec(ABC):
     """Base description of a pulse.
 
-    The DAC and the carrier frequency belong to the element that owns the
-    pulse, not to the pulse itself: a pulse only knows which element it belongs
-    to, and its detuning from that element's frequency.
+    Deliberately minimal: the DAC and the carrier frequency belong to the
+    element that owns the pulse, so a pulse only knows which element it belongs
+    to. `MuxedConstantPulseSpec` stops here, because a multiplexed pulse has no
+    carrier of its own - the frequencies live on the DAC's tones.
     """
 
     name: str
     element: str                      # name of the ElementSpec that owns it
+
+
+@dataclass(kw_only=True)
+class TonePulseSpec(PulseSpec):
+    """A pulse that carries its own tone. Everything except the muxed one.
+
+    `periodic` is NOT here: FlatTopPulse has no periodic mode, so it sits on
+    the concrete classes that actually support it.
+    """
+
     detuning: float = 0.0             # Hz, offset from the element frequency
     phase: float = 0.0                # deg
     gain: float = 1.0                 # -1 .. 1
     reset_phase: bool = False
     hold_last_sample: bool = False
+
+
+@dataclass(kw_only=True)
+class ConstantPulseSpec(TonePulseSpec):
+    """Rectangular pulse. Maps to `ConstantPulse`.
+
+    A burst of a tone: constant amplitude for `length`, at the element's
+    frequency plus `detuning`. This is the usual readout pulse.
+    """
+
+    length: float                     # sec
     periodic: bool = False            # play continuously instead of once
 
 
 @dataclass(kw_only=True)
-class ConstantPulseSpec(PulseSpec):
-    """Rectangular pulse. Maps to `ConstantPulse`.
+class CorrectedConstantPulseSpec(TonePulseSpec):
+    """Rectangular pulse with a frequency-dependent gain and phase correction.
 
-    A burst of a tone: constant amplitude for `length`, at the element's
-    frequency plus `detuning`. This is the readout pulse.
+    Maps to `CorrectedConstantPulse`. The three arrays are interpolated at the
+    pulse frequency to derive a gain factor and a phase offset, which is how
+    you flatten the response of a cable and amplifier chain. Leave them empty
+    for no correction.
     """
 
     length: float                     # sec
+    periodic: bool = False
+    correctable_freqs: Sequence[float] = field(default_factory=list)   # Hz
+    gain_factors: Sequence[float] = field(default_factory=list)
+    phase_offsets: Sequence[float] = field(default_factory=list)       # deg
 
 
 @dataclass(kw_only=True)
-class ArbitraryPulseSpec(PulseSpec):
+class ArbitraryPulseSpec(TonePulseSpec):
     """Pulse with an arbitrary envelope. Maps to `ArbitraryPulse`.
 
     There is no `length` field: the duration of an arbitrary pulse is the
-    length of its envelope. This is the qubit drive pulse.
+    length of its envelope. This is the usual qubit drive pulse.
     """
 
     envelope: EnvelopeSpec
+    periodic: bool = False
+
+
+@dataclass(kw_only=True)
+class FlatTopPulseSpec(TonePulseSpec):
+    """Flat-top pulse with arbitrary ramps. Maps to `FlatTopPulse`.
+
+    `length` is the FLAT portion only; the ramps come from the envelope, whose
+    first half is the ramp-up and second half the ramp-down. Use an even-length
+    envelope. FlatTopPulse has no periodic mode.
+    """
+
+    envelope: EnvelopeSpec
+    length: float                     # sec, flat portion only
+
+
+@dataclass(kw_only=True)
+class MuxedConstantPulseSpec(PulseSpec):
+    """Frequency-multiplexed rectangular pulse. Maps to `MuxedConstantPulse`.
+
+    Several tones at once on one DAC, which is how you read out several
+    resonators through one feedline. Frequency and gain are properties of the
+    DAC's tones, not of this pulse; here you only choose which tones to play.
+
+    Needs a MultiplexedDacChannel, so the firmware must be built with a muxed
+    generator. The standard RFSoC 4x2 image is not.
+    """
+
+    length: float                     # sec
+    tone_nums: Sequence[int] = field(default_factory=tuple)

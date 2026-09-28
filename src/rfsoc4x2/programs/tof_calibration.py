@@ -144,6 +144,13 @@ def tof_calibration(rfsoc: RFSoC, resonator: Element, pulse_length: float, windo
     arrival = detect_arrival(time, iq, pulse_length, smooth=smooth, min_snr=min_snr)
     tof = arrival + margin
 
+    # The run's own snapshot holds the OLD time_of_flight, because it was taken
+    # before the fit. Attach the result to this dataset so the calibration can
+    # be looked up later: dataset.metadata['time_of_flight'].
+    dataset.add_metadata("time_of_flight", tof)
+    dataset.add_metadata("tof_arrival", arrival)
+    dataset.add_metadata("tof_margin", margin)
+
     if verbose:
         print(f"arrival {arrival*1e9:.2f} ns + margin {margin*1e9:.2f} ns = {tof*1e9:.2f} ns "
               f"(was {resonator.time_of_flight*1e9:.2f} ns)")
