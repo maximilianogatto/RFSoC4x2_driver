@@ -115,6 +115,12 @@ def resonator_spectroscopy(rfsoc: RFSoC, resonator: Element, f_start: float, f_s
     # works whether the resonance is a dip (hanger, notch) or a peak (reflection)
     resonance = freqs[np.argmax(np.abs(amplitude - np.median(amplitude)))]
 
+    # The run's snapshot holds the settings; this holds what the run CONCLUDED,
+    # so the answer can be looked up later without re-analysing the trace.
+    dataset.add_metadata("resonance", float(resonance))
+    dataset.add_metadata("f_start", float(f_start))
+    dataset.add_metadata("f_stop", float(f_stop))
+
     if verbose:
         contrast = amplitude.max() / amplitude.min() if amplitude.min() > 0 else np.inf
         print(f"stored as run    : {run_id}")

@@ -200,33 +200,71 @@ class RFSoC:
             element.pulses[pulse_spec.name] = pulse
             print(f"  pulse {pulse_spec.name} ({type(pulse_spec).__name__}) on {element.name}")
             
-    def update_spec(self, parameters: list[tuple[str, float]], element: str, verbose: bool = True):
-        """Update an element's spec and apply it to the hardware.
+    def update_spec(self, parameters: list[tuple[str, float]], element: str | None = None, pulse: str | None = None, verbose: bool = True):
+        """Update a spec and apply it to the hardware. This is how a calibration sticks.
 
         The spec is the same object that lives in `Config`, so the new value is
-        also what `run()` writes into the snapshot of every later dataset. That
-        is how a calibration survives.
+        also what `run()` writes into the snapshot of every later dataset.
+
+        Calibrated numbers live at three levels, and this reaches all of them:
+
+            element   frequency, time_of_flight, readout_length
+            pulse     gain, detuning, phase, length
+            envelope  sigma, alpha, delta   (via the pulse that owns it)
+
+        An attribute that is not on the pulse spec is looked for on its
+        envelope, so a DRAG calibration writes to the pulse it belongs to:
+
+            rfsoc.update_spec([("gain", pi_gain)], pulse="pi")
+            rfsoc.update_spec([("alpha", best_alpha)], pulse="pi")
 
         Args:
             parameters: list of (parameter name, value) tuples to update
-            element: name of the element to update
+            element: name of the element to update, or
+            pulse: name of the pulse to update. Exactly one of the two.
             verbose: print each change
         """
-        target = self.element(element)
-        spec = target.spec
+        if (element is None) == (pulse is None):
+            raise ValueError("Specify either an element or a pulse, not both.")
+
+        label = element if element is not None else pulse
+        spec = self.element(element).spec if element is not None else self._pulse_spec(pulse)
         if spec is None:
-            raise ValueError(f"{element} was built without a spec, there is nothing to update.")
+            raise ValueError(f"{label} was built without a spec, there is nothing to update.")
 
         for param_name, value in parameters:
+            # a pulse parameter that is not on the pulse belongs to its envelope
+            target_spec = spec
             if not hasattr(spec, param_name):
-                raise AttributeError(f"{element} has no spec parameter '{param_name}'")
+                envelope = getattr(spec, "envelope", None)
+                if envelope is not None and hasattr(envelope, param_name):
+                    target_spec = envelope
+                else:
+                    raise AttributeError(f"{label} has no spec parameter '{param_name}'")
             if verbose:
-                print(f"Updating {element} spec: {param_name} from {getattr(spec, param_name)} to {value}")
-            setattr(spec, param_name, value)
+                where = "" if target_spec is spec else " (envelope)"
+                print(f"Updating {label}{where}: {param_name} from {getattr(target_spec, param_name)} to {value}")
+            setattr(target_spec, param_name, value)
 
         # Push onto the objects that already exist. Do NOT rebuild: qickodes
         # pulses are qcodes InstrumentChannels, so building a second one with
         # the same name on the same DAC raises.
+        if element is not None:
+            self._apply_element_spec(self.element(element))
+        else:
+            self._apply_pulse_spec(pulse)
+        print(f"Applied updated spec for {label} to hardware.")
+
+    def _pulse_spec(self, name: str):
+        """The spec a pulse was built from."""
+        for spec in self.config.pulses:
+            if spec.name == name:
+                return spec
+        raise KeyError(f"no pulse spec '{name}'. Configured: {self.config.pulse_names()}")
+
+    def _apply_element_spec(self, target: Element):
+        """Re-apply an element's spec to its existing channels and pulses."""
+        spec = target.spec
         target.frequency = spec.frequency
         target.dac.nqz.set(spec.nqz)
 
@@ -236,10 +274,34 @@ class RFSoC:
             target.time_of_flight = spec.time_of_flight
 
         for pulse_spec in self.config.pulses:          # pulses follow the carrier
-            if pulse_spec.element == element:
+            if pulse_spec.element == target.name and hasattr(pulse_spec, "detuning"):
                 target.pulse(pulse_spec.name).freq.set(spec.frequency + pulse_spec.detuning)
 
-        print(f"Applied updated spec for {element} to hardware.")
+    def _apply_pulse_spec(self, name: str):
+        """Re-apply a pulse's spec, and its envelope's, to the live objects.
+
+        Envelope values reach the board on the next run: `_initialize()` calls
+        add_gauss() from the envelope's current parameters every time the
+        program is compiled.
+        """
+        spec = self._pulse_spec(name)
+        element = self.element(spec.element)
+        live = element.pulse(name)
+
+        for attr in ("phase", "gain", "length", "periodic",
+                     "reset_phase", "hold_last_sample", "tone_nums"):
+            if hasattr(spec, attr) and hasattr(live, attr):
+                getattr(live, attr).set(getattr(spec, attr))
+
+        if hasattr(spec, "detuning"):
+            live.freq.set(element.frequency + spec.detuning)
+
+        envelope_spec = getattr(spec, "envelope", None)
+        live_envelope = getattr(live, "envelope", None)
+        if envelope_spec is not None and live_envelope is not None:
+            for attr in ("sigma", "length", "delta", "alpha"):
+                if hasattr(envelope_spec, attr) and hasattr(live_envelope, attr):
+                    getattr(live_envelope, attr).set(getattr(envelope_spec, attr))
 
     def run(self, macros: Sequence[Macro], config: RunConfig) -> int:
         """Play one sequence and store the result. Returns the qcodes run id."""

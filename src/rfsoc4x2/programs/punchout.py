@@ -208,6 +208,13 @@ def punchout(rfsoc: RFSoC, resonator: Element, f_start: float, f_stop: float, f_
     resonances = find_resonances(freqs, iq)
     amplitude = np.abs(iq)
 
+    # what the run CONCLUDED, next to the raw map: the two branches and the
+    # shift between them are the result of a punch out
+    dataset.add_metadata("f_res_low_power", float(resonances[0]))
+    dataset.add_metadata("f_res_high_power", float(resonances[-1]))
+    dataset.add_metadata("shift", float(resonances[-1] - resonances[0]))
+    dataset.add_metadata("gain_spacing", gain_spacing)
+
     if verbose:
         low, high = resonances[0], resonances[-1]
         print(f"stored as run    : {run_id}")
