@@ -1,5 +1,7 @@
 """The live board: holds the connection, the elements and their pulses."""
+import json
 from collections.abc import Sequence
+from datetime import date
 from pathlib import Path
 from dataclasses import dataclass, field, fields
 from typing import Callable, Optional
@@ -253,7 +255,8 @@ class RFSoC:
             self._apply_element_spec(self.element(element))
         else:
             self._apply_pulse_spec(pulse)
-        print(f"Applied updated spec for {label} to hardware.")
+        if verbose:
+            print(f"Applied updated spec for {label} to hardware.")
 
     def _pulse_spec(self, name: str):
         """The spec a pulse was built from."""
@@ -302,6 +305,59 @@ class RFSoC:
             for attr in ("sigma", "length", "delta", "alpha"):
                 if hasattr(envelope_spec, attr) and hasattr(live_envelope, attr):
                     getattr(live_envelope, attr).set(getattr(envelope_spec, attr))
+
+    # ---------------- calibration files ----------------
+
+    def save_calibration(self, path=None) -> Path:
+        """Write today's calibrated numbers to a JSON file.
+
+        Only what a measurement calibrates, not the wiring, so the file can be
+        laid over a different setup. Defaults to `calibration/cal_<date>.json`
+        beside the database: a directory of dated files is also the record of
+        how the sample drifted through the cooldown.
+        """
+        if path is None:
+            path = Path("calibration") / f"cal_{date.today().isoformat()}.json"
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(self.config.calibration(), indent=2))
+        print(f"Saved calibration to {path}.")
+        return path
+
+    def load_calibration(self, path, strict: bool = True, verbose: bool = False):
+        """Apply a saved calibration to the current setup.
+
+        Every value goes through `update_spec`, so it takes the same path a
+        live calibration does: the Config is updated, the change reaches the
+        hardware, and it lands in the snapshot of every later run.
+
+        Args:
+            path: a file written by `save_calibration`.
+            strict: raise if the file names an element or pulse this setup does
+                not have. With False they are skipped and reported. Leave it
+                True unless you know why: a silent skip means measuring with a
+                stale value and not knowing.
+            verbose: print every parameter as it is applied.
+        """
+        data = json.loads(Path(path).read_text())
+        applied = skipped = 0
+
+        for kind, names in (("elements", self.config.element_names()),
+                            ("pulses", self.config.pulse_names())):
+            for name, values in data.get(kind, {}).items():
+                if name not in names:
+                    message = f"{path}: no {kind[:-1]} '{name}' in this setup"
+                    if strict:
+                        raise KeyError(f"{message}. Pass strict=False to skip it.")
+                    print(f"  skipped: {message}")
+                    skipped += len(values)
+                    continue
+                target = {"elements": {"element": name}, "pulses": {"pulse": name}}[kind]
+                self.update_spec(list(values.items()), verbose=verbose, **target)
+                applied += len(values)
+
+        print(f"Applied {applied} calibrated values from {path}"
+              + (f", skipped {skipped}." if skipped else "."))
 
     def run(self, macros: Sequence[Macro], config: RunConfig) -> int:
         """Play one sequence and store the result. Returns the qcodes run id."""
