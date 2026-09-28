@@ -15,6 +15,49 @@ from qickodes.instrument_v2 import SoftwareSweep
 from qick.asm_v2 import QickSweep1D
 
 
+def find_resonances(freqs: np.ndarray, iq: np.ndarray) -> np.ndarray:
+    """One resonance per power, from a (gains, freqs) grid of IQ.
+
+    Takes the biggest departure from each row's own median, which works for a
+    dip (hanger, notch) or a peak (reflection). Separate from the measurement
+    so an old run can be re-analysed without re-measuring.
+    """
+    amplitude = np.abs(np.atleast_2d(iq))
+    baseline = np.median(amplitude, axis=1, keepdims=True)
+    return freqs[np.argmax(np.abs(amplitude - baseline), axis=1)]
+
+
+def plot_punchout(freqs, gains, iq, resonances, log_gain=True, title=""):
+    """Map of |IQ| against frequency and power, plus the punch out curve.
+
+    Each row is normalised by its own median: the raw amplitude spans decades
+    because the gain does, which would hide the dip at low power.
+    """
+    amplitude = np.abs(iq)
+    normalised = amplitude / np.median(amplitude, axis=1, keepdims=True)
+    scale = 'log' if log_gain else 'linear'
+
+    fig, ax = plt.subplots(1, 2, figsize=(14, 6), sharey=True)
+    mesh = ax[0].pcolormesh(freqs / 1e9, gains, normalised, shading='nearest')
+    ax[0].plot(resonances / 1e9, gains, 'r.-', lw=1, ms=4, label="resonance")
+    ax[0].set_yscale(scale)
+    ax[0].set_xlabel("Frequency [GHz]")
+    ax[0].set_ylabel("Readout gain")
+    ax[0].set_title("|IQ| normalised per power")
+    ax[0].legend()
+    fig.colorbar(mesh, ax=ax[0])
+
+    ax[1].plot(resonances / 1e9, gains, 'k.-')
+    ax[1].set_yscale(scale)
+    ax[1].set_xlabel("Frequency [GHz]")
+    ax[1].set_title("Resonance vs power (the punch out)")
+    ax[1].grid(alpha=0.3)
+
+    fig.suptitle(title)
+    plt.tight_layout()
+    return fig
+
+
 def punchout(rfsoc: RFSoC, resonator: Element, f_start: float, f_stop: float, f_points: int, gain_start: float = 1e-3, gain_stop: float = 1.0, gain_points: int = 21, gain_spacing: str = 'linear', pulse_name: str = 'readout', hard_avg: int = 1000, soft_avg: int = 1, final_delay: float = 5e-6, plot: bool = True, verbose: bool = True) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Measure the resonator against readout power.
 
@@ -162,11 +205,8 @@ def punchout(rfsoc: RFSoC, resonator: Element, f_start: float, f_stop: float, f_
     gains = np.unique(gain_flat)
     iq = iq_flat[order].reshape(len(gains), len(freqs))
 
-    # one resonance per power: the biggest departure from that row's median,
-    # which works for a dip (hanger, notch) or a peak (reflection)
+    resonances = find_resonances(freqs, iq)
     amplitude = np.abs(iq)
-    baseline = np.median(amplitude, axis=1, keepdims=True)
-    resonances = freqs[np.argmax(np.abs(amplitude - baseline), axis=1)]
 
     if verbose:
         low, high = resonances[0], resonances[-1]
@@ -179,27 +219,8 @@ def punchout(rfsoc: RFSoC, resonator: Element, f_start: float, f_stop: float, f_
             print("         Widen the gain range, or the qubit may not be coupled.")
 
     if plot:
-        # normalise each row: the raw amplitude spans decades because the gain
-        # does, which would hide the dip at low power
-        normalised = amplitude / baseline
-
-        fig, ax = plt.subplots(1, 2, figsize=(14, 6), sharey=True)
-        mesh = ax[0].pcolormesh(freqs / 1e9, gains, normalised, shading='nearest')
-        ax[0].plot(resonances / 1e9, gains, 'r.-', lw=1, ms=4, label="resonance")
-        ax[0].set_yscale('log' if gain_spacing == 'log' else 'linear')
-        ax[0].set_xlabel("Frequency [GHz]")
-        ax[0].set_ylabel("Readout gain")
-        ax[0].set_title("|IQ| normalised per power")
-        ax[0].legend()
-        fig.colorbar(mesh, ax=ax[0])
-
-        ax[1].plot(resonances / 1e9, gains, 'k.-')
-        ax[1].set_yscale('log' if gain_spacing == 'log' else 'linear')
-        ax[1].set_xlabel("Frequency [GHz]")
-        ax[1].set_title("Resonance vs power (the punch out)")
-        ax[1].grid(alpha=0.3)
-
-        fig.suptitle(f"{dataset.name} (run {run_id})")
-        plt.tight_layout()
+        plot_punchout(freqs, gains, iq, resonances,
+                      log_gain=(gain_spacing == 'log'),
+                      title=f"{dataset.name} (run {run_id})")
 
     return freqs, gains, iq

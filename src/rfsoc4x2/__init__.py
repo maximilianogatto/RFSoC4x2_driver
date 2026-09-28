@@ -30,8 +30,9 @@ Typical use::
            RunConfig(measurement_name="loopback",
                      experiment_name="commissioning", sample_name="none"))
 
-`sweeps.py` and `programs.py` are placeholders for the sweep layer and the
-measurement library (punch-out, Rabi, T1). They are not written yet.
+    sweeps.py     restored(), which puts swept parameters back afterwards
+    programs/     the measurement routines: tof_calibration,
+                  resonator_spectroscopy, punchout
 """
 
 from .config import Config
@@ -40,13 +41,10 @@ from .rfsoc import RFSoC, RunConfig
 from .specs import (
     ArbitraryPulseSpec,
     ConstantPulseSpec,
-    CorrectedConstantPulseSpec,
     ElementSpec,
     EnvelopeSpec,
-    FlatTopPulseSpec,
     GaussianDragEnvelopeSpec,
     GaussianEnvelopeSpec,
-    MuxedConstantPulseSpec,
     PulseSpec,
     QubitSpec,
     ResonatorSpec,
@@ -67,10 +65,7 @@ __all__ = [
     # pulse specs
     "PulseSpec",
     "ConstantPulseSpec",
-    "CorrectedConstantPulseSpec",
     "ArbitraryPulseSpec",
-    "FlatTopPulseSpec",
-    "MuxedConstantPulseSpec",
     # envelope specs
     "EnvelopeSpec",
     "GaussianEnvelopeSpec",

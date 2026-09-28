@@ -68,7 +68,7 @@ def tof_calibration(rfsoc: RFSoC, resonator: Element, pulse_length: float, windo
     if resonator.adc is None:
         raise ValueError(f"element '{resonator.name}' has no ADC, there is nothing to calibrate")
 
-    original_window = resonator.readout_window
+    original_window = resonator.adc.length.get()
     capped = False
     if window is None:
         # the delay is what we are measuring, so leave generous room for it.
@@ -94,7 +94,12 @@ def tof_calibration(rfsoc: RFSoC, resonator: Element, pulse_length: float, windo
     # A wider window therefore costs hardware averaging, which is why soft_avg
     # does most of the work in this calibration.
     samples = resonator.window_samples(window)
-    max_shots = resonator.max_decimated_reps(window)
+    max_shots = resonator.buf_maxlen // samples
+    if max_shots < 1:
+        raise ValueError(
+            f"a window of {samples} samples does not fit in the decimated buffer of "
+            f"{resonator.buf_maxlen} samples. Shorten it, or use acquisition_mode='ddr4'."
+        )
     sample_period = window / samples
 
     if verbose:

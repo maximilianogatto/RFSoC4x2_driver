@@ -85,22 +85,14 @@ class Element:
             )
         return self.qi.soccfg["readouts"][self.adc.channel_num]["buf_maxlen"]
 
-    @property
-    def readout_window(self) -> float:
-        """Length of the ADC acquisition window, in seconds."""
-        if self.adc is None:
-            raise ValueError(f"element '{self.name}' has no ADC.")
-        return self.adc.length.get()
-
-    def window_samples(self, window_length: float | None = None) -> int:
+    def window_samples(self, window_length: float) -> int:
         """Decimated samples in a window of `window_length` seconds.
 
-        Defaults to the element's configured readout window.
+        The decimated buffer holds `buf_maxlen` samples in total, so
+        `buf_maxlen // window_samples(w)` is the most repetitions that fit.
         """
         if self.adc is None:
             raise ValueError(f"element '{self.name}' has no ADC.")
-        if window_length is None:
-            window_length = self.readout_window
         samples = self.qi.soccfg.us2cycles(
             window_length * 1e6, ro_ch=self.adc.channel_num
         )
@@ -110,22 +102,3 @@ class Element:
                 f"{self.adc.channel_num}."
             )
         return samples
-
-    def max_decimated_reps(self, window_length: float | None = None) -> int:
-        """How many decimated windows fit in the buffer.
-
-        Use this as `n_shots` for a decimated acquisition: it is the most
-        hardware averaging you can do in one go. For more averaging beyond it,
-        raise `soft_avgs`, which re-runs the whole program and averages in
-        python without any buffer limit.
-        """
-        samples = self.window_samples(window_length)
-        reps = self.buf_maxlen // samples
-        if reps < 1:
-            raise ValueError(
-                f"a window of {samples} samples does not fit in the decimated "
-                f"buffer of {self.buf_maxlen} samples on ADC "
-                f"{self.adc.channel_num}. Shorten the readout window, or use "
-                f"acquisition_mode='ddr4'."
-            )
-        return reps
