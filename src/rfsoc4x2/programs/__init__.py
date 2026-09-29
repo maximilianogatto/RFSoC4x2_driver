@@ -2,7 +2,7 @@
 
 from .chevron import chevron
 from .punchout import punchout
-from .qubit_spectroscopy import qubit_spectroscopy
+from .qubit_spectroscopy import qubit_power_spectroscopy, qubit_spectroscopy
 from .rabi import rabi
 from .resonator_spectroscopy import resonator_spectroscopy
 from .single_shot import single_shot_readout
@@ -11,6 +11,7 @@ from .tof_calibration import tof_calibration
 __all__ = [
     "chevron",
     "punchout",
+    "qubit_power_spectroscopy",
     "qubit_spectroscopy",
     "rabi",
     "resonator_spectroscopy",
