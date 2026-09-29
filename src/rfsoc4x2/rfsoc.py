@@ -155,6 +155,14 @@ class RFSoC:
             print(f"QickInstrument {name} removed from the station.")
             self.qi = None
             self.elements = {}
+    
+    def display(self, message: str):
+        """Display a message on the board's front panel."""
+        self.qi.soc.oled_write(message)
+        
+    def display_ready(self):
+        """Display a ready message on the board's front panel."""
+        self.qi.soc.oled_ready()
 
     def element(self, name: str) -> Element:
         """Return one element by name, with a clear error if it is not there."""

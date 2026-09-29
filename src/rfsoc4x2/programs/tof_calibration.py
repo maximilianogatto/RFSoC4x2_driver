@@ -67,6 +67,8 @@ def tof_calibration(rfsoc: RFSoC, resonator: Element, pulse_length: float, windo
     """
     if resonator.adc is None:
         raise ValueError(f"element '{resonator.name}' has no ADC, there is nothing to calibrate")
+    
+    rfsoc.display(f"Calibrating TOF \\DAC: {resonator.dac.channel_num} -> ADC: {resonator.adc.channel_num}")
 
     original_window = resonator.adc.length.get()
     capped = False
@@ -169,5 +171,7 @@ def tof_calibration(rfsoc: RFSoC, resonator: Element, pulse_length: float, windo
 
     rfsoc.update_spec([('time_of_flight', tof)], element=resonator.name)
     print(f"Resonator {resonator.name} spec updated with time-of-flight delay: {tof*1e9:.2f} ns")
+    
+    rfsoc.display_ready()
 
     return tof, run_id
