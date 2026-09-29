@@ -6,6 +6,7 @@ from .qubit_spectroscopy import qubit_power_spectroscopy, qubit_spectroscopy
 from .rabi import rabi
 from .resonator_spectroscopy import resonator_spectroscopy
 from .single_shot import single_shot_readout
+from .t1 import t1
 from .tof_calibration import tof_calibration
 from .two_tone import two_tone
 
@@ -17,6 +18,7 @@ __all__ = [
     "rabi",
     "resonator_spectroscopy",
     "single_shot_readout",
+    "t1",
     "tof_calibration",
     "two_tone",
 ]

@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -32,6 +34,15 @@ def to_probability(iq, ground: complex, excited: complex) -> np.ndarray:
     """
     axis = excited - ground
     return np.real((np.asarray(iq) - ground) * np.conj(axis)) / abs(axis) ** 2
+
+
+def _robust_sigma(values: np.ndarray) -> float:
+    """Width of the core of a distribution, ignoring tails.
+
+    The median absolute deviation, scaled by 1.4826 so it equals the standard
+    deviation for a gaussian.
+    """
+    return float(1.4826 * np.median(np.abs(values - np.median(values))))
 
 
 def _best_threshold(ground_proj: np.ndarray, excited_proj: np.ndarray) -> tuple[float, float, float]:
@@ -88,7 +99,8 @@ def single_shot_readout(rfsoc: RFSoC, qubit: Element, resonator: Element | None 
         verbose: whether to print the result
 
     Returns:
-        dict with ground, excited, angle, threshold, fidelity, separation, snr
+        dict with ground, excited, angle, threshold, fidelity, p_e_given_g,
+        p_g_given_e, separation, snr, fidelity_limit
     """
     resonator = qubit.resolve_readout(resonator)
     if resonator.adc is None:
@@ -162,8 +174,18 @@ def single_shot_readout(rfsoc: RFSoC, qubit: Element, resonator: Element | None 
 
     threshold, p_ground_wrong, p_excited_wrong = _best_threshold(ground_proj, excited_proj)
     fidelity = 1 - (p_ground_wrong + p_excited_wrong) / 2
-    noise = float(np.sqrt((ground_proj.var() + excited_proj.var()) / 2))
-    snr = separation / noise if noise > 0 else np.inf
+    # SNR from the CORE of each blob. The excited cloud has a tail from T1
+    # decay during the readout; a plain std would count that tail as noise and
+    # a plain mean would pull the centre towards ground, both lowering the SNR.
+    # Medians and the median absolute deviation ignore the tail.
+    core_separation = float(abs(np.median(excited_proj) - np.median(ground_proj)))
+    noise = (_robust_sigma(ground_proj) + _robust_sigma(excited_proj)) / 2
+    snr = core_separation / noise if noise > 0 else np.inf
+    # The best fidelity that noise alone would allow, if both blobs were clean
+    # gaussians. A measured fidelity well below it means shots are landing in
+    # the wrong blob for another reason: T1 in the readout, an incomplete pi
+    # pulse, or a qubit not fully in |0> at the start.
+    fidelity_limit = 1 - 0.5 * math.erfc(snr / (2 * math.sqrt(2)))
 
     result = {
         "ground": complex(centre_ground),
@@ -171,8 +193,11 @@ def single_shot_readout(rfsoc: RFSoC, qubit: Element, resonator: Element | None 
         "angle": angle,
         "threshold": threshold,
         "fidelity": fidelity,
+        "p_e_given_g": p_ground_wrong,     # a |0> shot read as 1
+        "p_g_given_e": p_excited_wrong,    # a |1> shot read as 0, mostly T1
         "separation": separation,
         "snr": snr,
+        "fidelity_limit": fidelity_limit,
         "run_id": run_id,
     }
 
@@ -187,6 +212,10 @@ def single_shot_readout(rfsoc: RFSoC, qubit: Element, resonator: Element | None 
         print(f"separation / snr : {separation:.5g} / {snr:.2f}")
         print(f"fidelity         : {fidelity*100:.2f}%  "
               f"(P(e|g) {p_ground_wrong*100:.2f}%, P(g|e) {p_excited_wrong*100:.2f}%)")
+        print(f"noise limit      : {fidelity_limit*100:.2f}%  (what the SNR alone would allow)")
+        if fidelity_limit - fidelity > 0.02:
+            print("NOTE: the fidelity is well below the noise limit, so noise is not what")
+            print("      limits it: more averaging or a longer readout will not help.")
         if p_excited_wrong > 3 * p_ground_wrong and p_excited_wrong > 0.02:
             print("NOTE: the excited cloud leaks into ground far more than the reverse.")
             print("      Usually T1 decay during the readout window: shorten it,")
