@@ -24,7 +24,7 @@ def find_qubit_frequency(freqs: np.ndarray, signal: np.ndarray) -> float:
     return float(freqs[np.argmax(contrast)])
 
 
-def chevron(rfsoc: RFSoC, qubit: Element, resonator: Element, t_start: float = 20e-9, t_stop: float = 2e-6, t_points: int = 41, f_span: float = 20e6, f_points: int = 41, pulse_name: str = 'drive', hard_avg: int = 1000, soft_avg: int = 1, final_delay: float = 200e-6, plot: bool = True, verbose: bool = True) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
+def chevron(rfsoc: RFSoC, qubit: Element, resonator: Element | None = None, t_start: float = 20e-9, t_stop: float = 2e-6, t_points: int = 41, f_span: float = 20e6, f_points: int = 41, pulse_name: str = 'drive', hard_avg: int = 1000, soft_avg: int = 1, final_delay: float = 200e-6, plot: bool = True, verbose: bool = True) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
     """Time Rabi against drive detuning: the chevron, and the qubit frequency.
 
     A time Rabi repeated at each detuning. On resonance the qubit inverts fully
@@ -47,7 +47,8 @@ def chevron(rfsoc: RFSoC, qubit: Element, resonator: Element, t_start: float = 2
     Args:
         rfsoc: RFSoC instance
         qubit: the element to drive
-        resonator: the element to read out, must have an ADC
+        resonator: the element to read out. Defaults to the resonator named
+            in the qubit's spec (QubitSpec.readout).
         t_start, t_stop: drive duration limits (s)
         t_points: points on the duration axis
         f_span: total width of the frequency scan (Hz), centred on the qubit's
@@ -64,6 +65,7 @@ def chevron(rfsoc: RFSoC, qubit: Element, resonator: Element, t_start: float = 2
         durations (s), frequencies (Hz), complex IQ of shape
         (f_points, t_points), and the extracted qubit frequency (Hz)
     """
+    resonator = qubit.resolve_readout(resonator)
     if resonator.adc is None:
         raise ValueError(f"element '{resonator.name}' has no ADC, it cannot be read out")
     if t_points < 2 or f_points < 2:

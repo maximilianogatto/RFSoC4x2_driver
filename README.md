@@ -103,7 +103,8 @@ config = Config(
     elements=[
         ResonatorSpec(name="resonator", dac=1, adc=2, frequency=5e9, nqz=2,
                       readout_length=1e-6, time_of_flight=400e-9),
-        QubitSpec(name="qubit", dac=0, frequency=3.44e9, nqz=1),
+        QubitSpec(name="qubit", dac=0, frequency=3.44e9, nqz=1,
+                  readout="resonator"),        # the resonator that reads it out
     ],
     pulses=[
         ConstantPulseSpec(name="readout", element="resonator",
@@ -117,6 +118,11 @@ config = Config(
 )
 config.save("setup.json")
 ```
+
+A qubit's `readout` names the resonator coupled to it, so qubit measurements
+take the qubit alone — `rabi(rfsoc, rfsoc.element("qubit"))` — and read out
+through that resonator. Pass `resonator=` to override it. The name is checked
+when the config is built: it must be one of the resonators.
 
 Five pulse types are available: `ConstantPulseSpec` (the readout tone),
 `ArbitraryPulseSpec` (a shaped qubit pulse), `CorrectedConstantPulseSpec`,

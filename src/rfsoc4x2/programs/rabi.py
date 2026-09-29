@@ -55,7 +55,7 @@ def find_pi(x: np.ndarray, signal: np.ndarray, smooth: int = 3) -> float:
     return float(x[turns[0] + 1])
 
 
-def rabi(rfsoc: RFSoC, qubit: Element, resonator: Element, sweep: str = 'gain', start: float = 0.0, stop: float = 1.0, points: int = 101, pulse_name: str = 'pi', hard_avg: int = 1000, soft_avg: int = 1, final_delay: float = 200e-6, plot: bool = True, verbose: bool = True) -> tuple[np.ndarray, np.ndarray, float]:
+def rabi(rfsoc: RFSoC, qubit: Element, resonator: Element | None = None, sweep: str = 'gain', start: float = 0.0, stop: float = 1.0, points: int = 101, pulse_name: str = 'pi', hard_avg: int = 1000, soft_avg: int = 1, final_delay: float = 200e-6, plot: bool = True, verbose: bool = True) -> tuple[np.ndarray, np.ndarray, float]:
     """Rabi oscillation: drive the qubit, read out, and find the pi pulse.
 
     Driving on resonance rotates the qubit around the Bloch sphere by an angle
@@ -77,7 +77,8 @@ def rabi(rfsoc: RFSoC, qubit: Element, resonator: Element, sweep: str = 'gain', 
     Args:
         rfsoc: RFSoC instance
         qubit: the element to drive
-        resonator: the element to read out, must have an ADC
+        resonator: the element to read out. Defaults to the resonator named
+            in the qubit's spec (QubitSpec.readout).
         sweep: 'gain' or 'length'
         start, stop: limits of the swept parameter (-1..1 for gain, seconds for length)
         points: number of points in the hardware loop
@@ -94,6 +95,7 @@ def rabi(rfsoc: RFSoC, qubit: Element, resonator: Element, sweep: str = 'gain', 
     """
     if sweep not in SWEEPS:
         raise ValueError(f"sweep must be one of {list(SWEEPS)}, got '{sweep}'")
+    resonator = qubit.resolve_readout(resonator)
     if resonator.adc is None:
         raise ValueError(f"element '{resonator.name}' has no ADC, it cannot be read out")
     if points < 2:

@@ -22,7 +22,19 @@ class ElementSpec(ABC):
 
 @dataclass(kw_only=True)
 class QubitSpec(ElementSpec):
-    """A qubit drive line. Output only, so it has no ADC."""
+    """A qubit drive line. Output only, so it has no ADC.
+
+    A qubit is read out through a resonator, so `readout` names the
+    ResonatorSpec coupled to it. Measurements use it as their default readout,
+    so you pass the qubit alone and the right resonator comes with it. It is a
+    name rather than an object, like `PulseSpec.element`, so the spec stays
+    plain data and saves to JSON unchanged.
+
+    Leave it None for a qubit with no readout of its own; a program then needs
+    the resonator passed explicitly. Two qubits may name the same resonator.
+    """
+
+    readout: str | None = None        # name of the ResonatorSpec that reads it out
 
 
 @dataclass(kw_only=True)

@@ -180,6 +180,7 @@ class RFSoC:
         self.config.check_new_element(element_spec)
         element = build_element(element_spec, self.qi)
         self.elements[element.name] = element
+        self._link_readout(element)
         self.config.elements.append(element_spec)
         print(f"Added new element {element.name} ({element.type}) on DAC {element_spec.dac}.")
 
@@ -196,12 +197,23 @@ class RFSoC:
         self.config.pulses.append(pulse_spec)
         print(f"Added new pulse {pulse_spec.name} ({type(pulse_spec).__name__}) on {element.name}.")
 
+    def _link_readout(self, element: Element):
+        """Point a qubit element at the resonator element its spec names."""
+        name = getattr(element.spec, "readout", None)
+        element.readout = self.elements[name] if name is not None else None
+
     def _apply_config(self):
         """Build every element, then every pulse, from the config."""
         for element_spec in self.config.elements:
             element = build_element(element_spec, self.qi)
             self.elements[element.name] = element
             print(f"  element {element.name} ({element.type}) on DAC {element_spec.dac}")
+
+        # a second pass: a qubit may be listed before the resonator it names
+        for element in self.elements.values():
+            self._link_readout(element)
+            if element.readout is not None:
+                print(f"  {element.name} is read out by {element.readout.name}")
 
         for pulse_spec in self.config.pulses:
             element = self.element(pulse_spec.element)
@@ -251,6 +263,8 @@ class RFSoC:
                     target_spec = envelope
                 else:
                     raise AttributeError(f"{label} has no spec parameter '{param_name}'")
+            if param_name == "readout":
+                self.config.check_readout(label, value)
             if verbose:
                 where = "" if target_spec is spec else " (envelope)"
                 print(f"Updating {label}{where}: {param_name} from {getattr(target_spec, param_name)} to {value}")
@@ -278,6 +292,7 @@ class RFSoC:
         spec = target.spec
         target.frequency = spec.frequency
         target.dac.nqz.set(spec.nqz)
+        self._link_readout(target)
 
         if target.adc is not None:
             target.adc.freq.set(spec.frequency)        # the ADC follows the resonator

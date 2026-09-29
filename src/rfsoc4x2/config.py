@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import List
 
 from . import specs as _specs
-from .specs import ElementSpec, EnvelopeSpec, PulseSpec
+from .specs import ElementSpec, EnvelopeSpec, PulseSpec, QubitSpec, ResonatorSpec
 
 # Every spec class by name, discovered from the specs module so a new type is
 # supported without editing a list here.
@@ -77,6 +77,29 @@ class Config:
         """Names of every pulse, in config order."""
         return [pulse.name for pulse in self.pulses]
 
+    def check_readout(self, qubit_name: str, readout: str | None, elements=None):
+        """Raise unless `readout` names one of the resonators in this setup.
+
+        None is allowed: a qubit with no readout of its own. `elements` lets
+        the check run against a list that is still being built.
+        """
+        if readout is None:
+            return
+        elements = self.elements if elements is None else elements
+        resonators = [e.name for e in elements if isinstance(e, ResonatorSpec)]
+        if readout in resonators:
+            return
+        if readout in [e.name for e in elements]:
+            kind = type(next(e for e in elements if e.name == readout)).__name__
+            raise ValueError(
+                f"qubit '{qubit_name}' is read out by '{readout}', which is a "
+                f"{kind}, not a resonator. Resonators: {resonators}"
+            )
+        raise ValueError(
+            f"qubit '{qubit_name}' is read out by '{readout}', but there is no "
+            f"resonator with that name. Resonators: {resonators}"
+        )
+
     def check_new_element(self, element: ElementSpec):
         """Raise if this element could not be added. Does not modify anything.
 
@@ -89,6 +112,9 @@ class Config:
             raise ValueError(
                 f"element '{element.name}' already exists. Use update_spec() to change it."
             )
+        if isinstance(element, QubitSpec):
+            # the resonator has to be there already
+            self.check_readout(element.name, element.readout)
 
     def check_new_pulse(self, pulse: PulseSpec):
         """Raise if this pulse could not be added. Does not modify anything."""
@@ -194,6 +220,11 @@ class Config:
             if element.name in seen:
                 raise ValueError(f"Duplicated element name: {element.name}")
             seen.append(element.name)
+
+        # after the loop, so a qubit may be listed before its resonator
+        for element in self.elements:
+            if isinstance(element, QubitSpec):
+                self.check_readout(element.name, element.readout)
 
     def _validate_pulses(self):
         """Check that pulses are specs, unique, and point at a known element."""

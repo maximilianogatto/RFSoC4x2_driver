@@ -54,7 +54,7 @@ def _best_threshold(ground_proj: np.ndarray, excited_proj: np.ndarray) -> tuple[
     return float(candidates[best]), float(p_ground_wrong[best]), float(p_excited_wrong[best])
 
 
-def single_shot_readout(rfsoc: RFSoC, qubit: Element, resonator: Element, pi_gain: float, pulse_name: str = 'pi', shots: int = 10000, final_delay: float = 200e-6, plot: bool = True, verbose: bool = True) -> dict:
+def single_shot_readout(rfsoc: RFSoC, qubit: Element, resonator: Element | None = None, pi_gain: float | None = None, pulse_name: str = 'pi', shots: int = 10000, final_delay: float = 200e-6, plot: bool = True, verbose: bool = True) -> dict:
     """Measure the two IQ blobs, and with them the readout calibration.
 
     Runs `shots` single-shot readouts with the qubit in |0>, and `shots` with
@@ -76,8 +76,10 @@ def single_shot_readout(rfsoc: RFSoC, qubit: Element, resonator: Element, pi_gai
     Args:
         rfsoc: RFSoC instance
         qubit: the element to drive
-        resonator: the element to read out, must have an ADC
-        pi_gain: the calibrated pi pulse gain, from `rabi`
+        resonator: the element to read out. Defaults to the resonator named
+            in the qubit's spec (QubitSpec.readout).
+        pi_gain: the pi pulse gain. Defaults to the pulse's current gain, which
+            is the calibrated one once rabi's result went through update_spec.
         pulse_name: which of the qubit's pulses to drive with
         shots: single shots per state
         final_delay: delay between shots (s). At least 5x T1: an unrelaxed
@@ -88,12 +90,15 @@ def single_shot_readout(rfsoc: RFSoC, qubit: Element, resonator: Element, pi_gai
     Returns:
         dict with ground, excited, angle, threshold, fidelity, separation, snr
     """
+    resonator = qubit.resolve_readout(resonator)
     if resonator.adc is None:
         raise ValueError(f"element '{resonator.name}' has no ADC, it cannot be read out")
-    if not 0 < pi_gain <= 1:
-        raise ValueError(f"pi_gain must be in (0, 1], got {pi_gain}. Run rabi() first.")
 
     drive = qubit.pulses[pulse_name]
+    if pi_gain is None:
+        pi_gain = drive.gain.get()
+    if not 0 < pi_gain <= 1:
+        raise ValueError(f"pi_gain must be in (0, 1], got {pi_gain}. Run rabi() first.")
 
     # the accumulated buffer has to hold every shot of both states, because
     # 'accumulated shots' keeps them instead of averaging on the FPGA

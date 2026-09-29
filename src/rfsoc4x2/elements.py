@@ -36,6 +36,9 @@ class Element:
         pulse is played. Zero for a qubit.
     pulses : dict[str, DacPulse]
         Pulses of this element, by name.
+    readout : Element or None
+        For a qubit, the resonator element that reads it out, resolved from
+        the spec's `readout` name. None for a resonator, or a qubit without one.
     spec : ElementSpec or None
         The spec this element was built from. It is the SAME object that lives
         in `Config.elements`, so editing it also updates what gets written into
@@ -50,6 +53,22 @@ class Element:
     time_of_flight: float = 0.0 # useful for resonators, zero for qubits (no ADC)
     pulses: dict[str, DacPulse] = field(default_factory=dict)
     spec: ElementSpec | None = None
+    readout: Element | None = None     # the resonator element that reads this one out
+
+    def resolve_readout(self, resonator: Element | None = None) -> Element:
+        """The resonator to read this element out with.
+
+        An explicit `resonator` wins; otherwise the one named in the qubit's
+        spec. This is what lets a program take a qubit alone.
+        """
+        if resonator is not None:
+            return resonator
+        if self.readout is None:
+            raise ValueError(
+                f"element '{self.name}' has no readout resonator. Set readout= "
+                f"in its QubitSpec, or pass the resonator explicitly."
+            )
+        return self.readout
 
     def pulse(self, name: str) -> DacPulse:
         """Return one pulse by name, with a clear error if it is not there."""
