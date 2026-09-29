@@ -58,7 +58,7 @@ def plot_punchout(freqs, gains, iq, resonances, log_gain=True, title=""):
     return fig
 
 
-def punchout(rfsoc: RFSoC, resonator: Element, f_start: float, f_stop: float, f_points: int, gain_start: float = 1e-3, gain_stop: float = 1.0, gain_points: int = 21, gain_spacing: str = 'linear', pulse_name: str = 'readout', hard_avg: int = 1000, soft_avg: int = 1, final_delay: float = 5e-6, plot: bool = True, verbose: bool = True) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def punchout(rfsoc: RFSoC, resonator: Element, f_start: float, f_stop: float, f_points: int, gain_start: float = 1e-3, gain_stop: float = 1.0, gain_points: int = 21, gain_spacing: str = 'linear', pulse_name: str = 'readout', hard_avg: int = 1000, soft_avg: int = 1, final_delay: float = 5e-6, plot: bool = True, verbose: bool = True) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Measure the resonator against readout power.
 
     A resonator coupled to a qubit sits at two different frequencies depending
@@ -122,6 +122,8 @@ def punchout(rfsoc: RFSoC, resonator: Element, f_start: float, f_stop: float, f_
         gains = np.linspace(gain_start, gain_stop, gain_points)
     else:
         raise ValueError(f"gain_spacing must be 'log' or 'linear', got '{gain_spacing}'")
+
+    rfsoc.display(f"Running punchout\nDAC:{resonator.dac.channel_num} -> ADC:{resonator.adc.channel_num}")
 
     readout_pulse = resonator.pulses[pulse_name]
     readout_adc = resonator.adc
@@ -230,4 +232,6 @@ def punchout(rfsoc: RFSoC, resonator: Element, f_start: float, f_stop: float, f_
                       log_gain=(gain_spacing == 'log'),
                       title=f"{dataset.name} (run {run_id})")
 
-    return freqs, gains, iq
+    rfsoc.display_ready()
+    
+    return freqs, gains, iq, resonances
