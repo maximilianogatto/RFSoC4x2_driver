@@ -55,6 +55,7 @@ def resonator_spectroscopy(rfsoc: RFSoC, resonator: Element, f_start: float, f_s
     if f_stop <= f_start:
         raise ValueError(f"f_stop ({f_stop:.4e}) must be above f_start ({f_start:.4e})")
 
+
     # configure the readout pulse and ADC
     readout_pulse = resonator.pulses[pulse_name]
     readout_adc = resonator.adc
@@ -64,6 +65,8 @@ def resonator_spectroscopy(rfsoc: RFSoC, resonator: Element, f_start: float, f_s
     # a software sweep re-uploads the program at every point, ~100 ms each;
     # soft_avgs repeats the run without re-uploading
     seconds = f_points * hard_avg * soft_avg * shot + f_points * 0.1
+    rfsoc.display(f"RES SPEC: {resonator.dac.channel_num}:{resonator.adc.channel_num} \ntime: {seconds/60:.1f} min")
+
     if verbose:
         print(f"resonator        : {resonator.name} (DAC {resonator.dac.channel_num}, ADC {readout_adc.channel_num})")
         print(f"span             : {f_start/1e9:.6f} - {f_stop/1e9:.6f} GHz, {f_points} points ({step/1e3:.1f} kHz step)")
@@ -113,33 +116,28 @@ def resonator_spectroscopy(rfsoc: RFSoC, resonator: Element, f_start: float, f_s
 
     amplitude = np.abs(iq)
     # works whether the resonance is a dip (hanger, notch) or a peak (reflection)
-    resonance = freqs[np.argmax(np.abs(amplitude - np.median(amplitude)))]
 
     # The run's snapshot holds the settings; this holds what the run CONCLUDED,
     # so the answer can be looked up later without re-analysing the trace.
-    dataset.add_metadata("resonance", float(resonance))
     dataset.add_metadata("f_start", float(f_start))
     dataset.add_metadata("f_stop", float(f_stop))
+    dataset.add_metadata("f_points", int(f_points))
 
     if verbose:
         contrast = amplitude.max() / amplitude.min() if amplitude.min() > 0 else np.inf
         print(f"stored as run    : {run_id}")
-        print(f"candidate f_res  : {resonance/1e9:.6f} GHz (contrast {contrast:.2f})")
-        if resonance in (freqs[0], freqs[-1]):
-            print("WARNING: the extremum sits at the edge of the span, widen the range")
 
     if plot:
         fig, ax = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
         ax[0].plot(freqs / 1e9, amplitude, '.-', lw=1, ms=3)
-        ax[0].axvline(resonance / 1e9, color='r', ls='--',
-                      label=f"f_res: {resonance/1e9:.6f} GHz")
         ax[0].set_ylabel("|IQ| [ADC units]")
         ax[0].legend()
         ax[1].plot(freqs / 1e9, np.rad2deg(np.unwrap(np.angle(iq))), '.-', lw=1, ms=3)
-        ax[1].axvline(resonance / 1e9, color='r', ls='--')
         ax[1].set_ylabel("Phase [degrees]")
         ax[1].set_xlabel("Frequency [GHz]")
         fig.suptitle(f"{dataset.name} (run {run_id})")
         plt.tight_layout()
+
+    rfsoc.display_ready()
 
     return freqs, iq

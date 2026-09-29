@@ -1,0 +1,17 @@
+{
+  "elements": {
+    "resonator": {
+      "frequency": 5000000000.0,
+      "readout_length": 1e-06,
+      "time_of_flight": 3.039527190934047e-07
+    }
+  },
+  "pulses": {
+    "readout": {
+      "detuning": 0,
+      "phase": 0,
+      "gain": 1,
+      "length": 5e-07
+    }
+  }
+}

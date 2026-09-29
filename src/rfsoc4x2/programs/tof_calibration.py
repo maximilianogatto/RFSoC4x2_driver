@@ -68,7 +68,7 @@ def tof_calibration(rfsoc: RFSoC, resonator: Element, pulse_length: float, windo
     if resonator.adc is None:
         raise ValueError(f"element '{resonator.name}' has no ADC, there is nothing to calibrate")
     
-    rfsoc.display(f"Calibrating TOF \\DAC: {resonator.dac.channel_num} -> ADC: {resonator.adc.channel_num}")
+    rfsoc.display(f"Calibrating TOF \nDAC: {resonator.dac.channel_num} -> ADC: {resonator.adc.channel_num}")
 
     original_window = resonator.adc.length.get()
     capped = False

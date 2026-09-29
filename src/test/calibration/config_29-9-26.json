@@ -1,0 +1,28 @@
+{
+  "elements": [
+    {
+      "class": "ResonatorSpec",
+      "name": "resonator",
+      "dac": 1,
+      "frequency": 5000000000.0,
+      "nqz": 2,
+      "adc": 2,
+      "readout_length": 1e-06,
+      "time_of_flight": 3.039527190934047e-07
+    }
+  ],
+  "pulses": [
+    {
+      "class": "ConstantPulseSpec",
+      "name": "readout",
+      "element": "resonator",
+      "detuning": 0,
+      "phase": 0,
+      "gain": 1,
+      "reset_phase": false,
+      "hold_last_sample": false,
+      "length": 5e-07,
+      "periodic": false
+    }
+  ]
+}
