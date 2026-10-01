@@ -18,6 +18,10 @@ class ElementSpec(ABC):
     dac: int
     frequency: float                  # Hz, carrier of every pulse of this element
     nqz: int = 1                      # Nyquist zone of the DAC
+    dac_attenuation: float = 0.0      # dB (>= 0), attenuators you added between the DAC output and the
+    #                                   device. Wiring record only: it does not change what the board
+    #                                   plays, but it is saved with every dataset so the power at the
+    #                                   device can be recomputed later.
 
 
 @dataclass(kw_only=True)
@@ -42,6 +46,8 @@ class ResonatorSpec(ElementSpec):
     """A readout resonator. Needs an ADC to listen to its own tone."""
 
     adc: int
+    adc_attenuation: float = 0.0      # dB (>= 0), attenuators you added between the device and the ADC
+    #                                   input. Wiring record only, saved with every dataset.
     readout_length: float             # sec, ADC integration window
     time_of_flight: float = 0.0       # sec, DAC -> fridge -> amps -> ADC round trip
     #                                   Calibrate once per cooldown: the ADC window

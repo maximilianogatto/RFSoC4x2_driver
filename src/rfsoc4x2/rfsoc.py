@@ -12,7 +12,7 @@ from qickodes.instrument_v2 import QickInstrument, SoftwareSweep
 from qickodes.macro_base_v2 import Macro
 
 from .build import build_element, build_pulse
-from .config import Config
+from .config import Config, check_attenuation
 from .elements import Element
 from .specs import ElementSpec, PulseSpec
 
@@ -265,6 +265,8 @@ class RFSoC:
                     raise AttributeError(f"{label} has no spec parameter '{param_name}'")
             if param_name == "readout":
                 self.config.check_readout(label, value)
+            if param_name.endswith("_attenuation"):
+                check_attenuation(label, param_name, value)
             if verbose:
                 where = "" if target_spec is spec else " (envelope)"
                 print(f"Updating {label}{where}: {param_name} from {getattr(target_spec, param_name)} to {value}")

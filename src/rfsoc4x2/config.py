@@ -5,6 +5,7 @@ Holds specs only, so a Config can be written, read and checked without a board.
 
 import inspect
 import json
+import math
 from dataclasses import asdict, dataclass, field, fields, is_dataclass
 from pathlib import Path
 from typing import List
@@ -27,6 +28,21 @@ CALIBRATED = (
     "gain", "phase", "detuning", "length",             # pulse
     "sigma", "alpha", "delta",                         # envelope
 )
+
+
+def check_attenuation(label: str, name: str, value) -> None:
+    """Raise unless `value` is an attenuation in dB: a finite number, zero or more.
+
+    A negative number would be a gain, not an attenuator, and is almost always a
+    sign mistake.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise ValueError(f"{label}: {name} must be a number of dB, got {value!r}")
+    if value < 0:
+        raise ValueError(
+            f"{label}: {name} must be >= 0 dB (attenuation is a loss), got {value}. "
+            f"Give 20 for a 20 dB attenuator."
+        )
 
 
 def _to_dict(spec) -> dict:
@@ -220,6 +236,9 @@ class Config:
             if element.name in seen:
                 raise ValueError(f"Duplicated element name: {element.name}")
             seen.append(element.name)
+            for attr in ("dac_attenuation", "adc_attenuation"):
+                if hasattr(element, attr):
+                    check_attenuation(f"element '{element.name}'", attr, getattr(element, attr))
 
         # after the loop, so a qubit may be listed before its resonator
         for element in self.elements:
