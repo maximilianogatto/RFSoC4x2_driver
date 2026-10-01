@@ -11,6 +11,8 @@ from qcodes import Instrument, Station, Measurement, initialise_or_create_databa
 from qickodes.instrument_v2 import QickInstrument, SoftwareSweep
 from qickodes.macro_base_v2 import Macro
 
+from qick.asm_v2 import QickParam
+
 from .build import build_element, build_pulse
 from .config import Config, check_attenuation
 from .elements import Element
@@ -33,6 +35,20 @@ SHOT_RESOLVED_MODES = (
     "ddr4",
     "state population",
 )
+
+
+def live_value(parameter):
+    """A live qickodes parameter as plain JSON.
+
+    A number, or {"sweep": [min, max]} while the parameter is a hardware sweep
+    (a QickParam), which is not JSON and would otherwise break the snapshot.
+    """
+    value = parameter.get()
+    if isinstance(value, QickParam):
+        return {"sweep": [float(value.minval()), float(value.maxval())]}
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return value
+    return float(value)
 
 
 @dataclass
@@ -331,6 +347,112 @@ class RFSoC:
                 if hasattr(envelope_spec, attr) and hasattr(live_envelope, attr):
                     getattr(live_envelope, attr).set(getattr(envelope_spec, attr))
 
+    # ---------------- apply a whole setup ----------------
+
+    # These fields decide which objects exist and how they are wired. They cannot
+    # be changed on live objects: to use a different structure, build a new RFSoC.
+    _STRUCTURE = ("name", "element", "dac", "adc", "readout", "envelope")
+
+    def _check_same_structure(self, label: str, mine, other):
+        """Raise unless `other` has the same type and wiring as the live spec `mine`."""
+        if type(mine) is not type(other):
+            raise ValueError(f"{label} is a {type(other).__name__} in the setup being applied "
+                             f"but a {type(mine).__name__} here.")
+        for key in self._STRUCTURE:
+            if key == "envelope" or not hasattr(other, key):
+                continue
+            if getattr(mine, key) != getattr(other, key):
+                raise ValueError(f"{label} has {key} = {getattr(other, key)!r} in the setup being applied "
+                                 f"but {getattr(mine, key)!r} here.")
+        envelope, my_envelope = getattr(other, "envelope", None), getattr(mine, "envelope", None)
+        if type(envelope) is not type(my_envelope):
+            raise ValueError(f"{label} has a different envelope type in the setup being applied.")
+
+    def apply_setup(self, config: Config, verbose: bool = True) -> int:
+        """Apply every value of `config` to the live setup, wiring records included.
+
+        That is the frequency, nqz, time of flight, readout window and the
+        attenuation you recorded (`dac_attenuation`, `adc_attenuation`), and every
+        pulse's gain, phase, detuning, length and envelope values. Only values that
+        differ are changed, through `update_spec`, so each one reaches the hardware
+        and the Config, and lands in the snapshot of every later run.
+
+        Names, DAC/ADC numbers and pulse types must match this setup: those decide
+        which objects exist, and nothing is changed if any of them differs. To use
+        a different structure, build a new RFSoC from the Config.
+
+        Returns the number of values changed.
+        """
+        # all of the structure first, so a mismatch leaves the setup untouched
+        for spec in config.elements:
+            if spec.name not in self.elements:
+                raise KeyError(f"element '{spec.name}' is not in this setup. "
+                               f"Elements: {sorted(self.elements)}")
+            self._check_same_structure(f"element '{spec.name}'", self.elements[spec.name].spec, spec)
+        for spec in config.pulses:
+            self._check_same_structure(f"pulse '{spec.name}'", self._pulse_spec(spec.name), spec)
+
+        changed = 0
+        for spec in config.elements:
+            mine = self.elements[spec.name].spec
+            changes = [(f.name, getattr(spec, f.name)) for f in fields(spec)
+                       if f.name not in self._STRUCTURE and getattr(mine, f.name) != getattr(spec, f.name)]
+            if changes:
+                self.update_spec(changes, element=spec.name, verbose=verbose)
+                changed += len(changes)
+
+        for spec in config.pulses:
+            mine = self._pulse_spec(spec.name)
+            changes = [(f.name, getattr(spec, f.name)) for f in fields(spec)
+                       if f.name not in self._STRUCTURE and getattr(mine, f.name) != getattr(spec, f.name)]
+            if changes:
+                self.update_spec(changes, pulse=spec.name, verbose=verbose)
+                changed += len(changes)
+
+            # envelope values: set directly, because update_spec would send a name
+            # that the pulse also has (length) to the pulse and not to the envelope
+            envelope, my_envelope = getattr(spec, "envelope", None), getattr(mine, "envelope", None)
+            if envelope is not None:
+                env_changes = [(f.name, getattr(envelope, f.name)) for f in fields(envelope)
+                               if f.name != "name" and getattr(my_envelope, f.name) != getattr(envelope, f.name)]
+                for key, value in env_changes:
+                    if verbose:
+                        print(f"Updating {spec.name} (envelope): {key} from {getattr(my_envelope, key)} to {value}")
+                    setattr(my_envelope, key, value)
+                if env_changes:
+                    self._apply_pulse_spec(spec.name)
+                    changed += len(env_changes)
+
+        print(f"Applied {changed} changed values from the setup."
+              + ("" if changed else " The setup already matched."))
+        return changed
+
+    def load_run(self, run_id: int, use_applied: bool = True, verbose: bool = True) -> int:
+        """Apply the whole setup a dataset was taken with, attenuation included.
+
+        Reads the Config stored with the run and applies it with `apply_setup`.
+
+        A program's `gain=` plays a gain the stored Config does not have, so with
+        `use_applied` (default) a pulse's gain is taken from what the run played
+        (`Config.applied_from_run`) when that differs from the Config's by more
+        than 1%. Differences below that are just the hardware rounding the gain.
+        """
+        config = Config.from_run(run_id)
+        if use_applied:
+            try:
+                played = Config.applied_from_run(run_id)["pulses"]
+            except KeyError:
+                played = {}
+            for pulse in config.pulses:
+                gain = played.get(pulse.name, {}).get("gain")
+                if isinstance(gain, float) and hasattr(pulse, "gain") \
+                        and abs(gain - pulse.gain) > 0.01 * max(abs(pulse.gain), 1e-12):
+                    if verbose:
+                        print(f"  {pulse.name}: the run played gain {gain:.6g} but its Config says "
+                              f"{pulse.gain}; using what was played")
+                    pulse.gain = gain
+        return self.apply_setup(config, verbose=verbose)
+
     # ---------------- calibration files ----------------
 
     def save_calibration(self, path=None) -> Path:
@@ -384,6 +506,35 @@ class RFSoC:
         print(f"Applied {applied} calibrated values from {path}"
               + (f", skipped {skipped}." if skipped else "."))
 
+    def applied(self) -> dict:
+        """What the live pulses and ADCs hold right now, as plain JSON.
+
+        This is what the board will actually play. It can differ from the Config:
+        a program's `gain=` or a frequency sweep changes the live objects for one
+        scan without touching the spec. Stored with every run as
+        `rfsoc4x2_applied`, so power can be computed from what was played and not
+        from what the setup says.
+
+        A parameter that is a hardware sweep is stored as {"sweep": [min, max]};
+        one that is a software sweep holds its first point (the swept values are
+        the dataset's setpoints).
+        """
+        out = {"pulses": {}, "adcs": {}}
+        for element in self.elements.values():
+            for name, pulse in element.pulses.items():
+                values = {}
+                for attr in ("gain", "freq", "phase", "length"):
+                    parameter = getattr(pulse, attr, None)
+                    if hasattr(parameter, "get"):
+                        values[attr] = live_value(parameter)
+                out["pulses"][name] = values
+            if element.adc is not None:
+                out["adcs"][element.name] = {
+                    "freq": live_value(element.adc.freq),
+                    "length": live_value(element.adc.length),
+                }
+        return out
+
     def run(self, macros: Sequence[Macro], config: RunConfig) -> int:
         """Play one sequence and store the result. Returns the qcodes run id."""
 
@@ -401,6 +552,8 @@ class RFSoC:
         # the setup and the run settings go into the station snapshot of the dataset
         self.station.metadata["rfsoc4x2_config"] = self.config.to_dict()
         self.station.metadata["rfsoc4x2_run"] = config.to_dict()
+        # what was really played: a scan's gain= or a sweep is not in the Config
+        self.station.metadata["rfsoc4x2_applied"] = self.applied()
 
         # qcodes measurement
         experiment = load_or_create_experiment(config.experiment_name, config.sample_name)

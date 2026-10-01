@@ -45,6 +45,33 @@ def check_attenuation(label: str, name: str, value) -> None:
         )
 
 
+def _applied_from_instrument_snapshot(snapshot: dict) -> dict:
+    """The live pulse values of a run, read from its qcodes instrument snapshot.
+
+    For runs taken before `rfsoc4x2_applied` existed. The ADCs are not included:
+    the snapshot names their channels, not the elements they belong to. A value
+    that was a hardware sweep is stored there as an object, not a number, and is
+    left out.
+    """
+    out = {"pulses": {}, "adcs": {}}
+    for instrument in snapshot.get("station", {}).get("instruments", {}).values():
+        dacs = instrument.get("submodules", {}).get("dacs")
+        if dacs is None:
+            continue
+        for channel in dacs.get("channels", {}).values():
+            for name, module in channel.get("submodules", {}).items():
+                parameters = module.get("parameters", {})
+                if "gain" not in parameters:        # an envelope, not a pulse
+                    continue
+                values = {}
+                for key in ("gain", "freq", "phase", "length"):
+                    value = parameters.get(key, {}).get("value")
+                    if isinstance(value, (int, float)) and not isinstance(value, bool):
+                        values[key] = float(value)
+                out["pulses"][name] = values
+    return out
+
+
 def _to_dict(spec) -> dict:
     """A spec as a dict, tagged with its class so it can be rebuilt."""
     out = {"class": type(spec).__name__}
@@ -198,6 +225,35 @@ class Config:
                 f"probably not taken with RFSoC.run()."
             )
         return cls.from_dict(stored)
+
+    @staticmethod
+    def applied_from_run(run_id: int) -> dict:
+        """What the board actually played in a dataset, read out of its snapshot.
+
+        Unlike `from_run`, which gives the SETUP, this gives the values the live
+        pulses and ADCs held: a scan's `gain=` override and a hardware-swept
+        parameter are here and not in the Config. Use it to compute power::
+
+            Config.applied_from_run(80)["pulses"]["readout"]["gain"]   # 0.05
+        """
+        from qcodes.dataset import load_by_id
+
+        dataset = load_by_id(run_id)
+        try:
+            snapshot = dataset.snapshot or {}
+        finally:
+            dataset.conn.close()
+        applied = snapshot.get("station", {}).get("metadata", {}).get("rfsoc4x2_applied")
+        if applied is None:
+            # taken before `rfsoc4x2_applied` was recorded: the pulses' live values
+            # are still in the instrument snapshot
+            applied = _applied_from_instrument_snapshot(snapshot)
+            if not applied["pulses"]:
+                raise KeyError(
+                    f"run {run_id} has no 'rfsoc4x2_applied' and no pulses in its instrument "
+                    f"snapshot. It was probably not taken with RFSoC.run()."
+                )
+        return applied
 
     # ---------------- just the measured numbers ----------------
 
